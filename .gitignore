@@ -1,0 +1,26 @@
+# Secrets
+.env
+mosquitto/config/passwd
+
+# Node-RED: keep flows.json, settings.js, package.json
+nodered/data/node_modules/
+nodered/data/.config.*.json
+nodered/data/.config.*.json.backup
+nodered/data/.flows*.json.backup
+nodered/data/*.backup
+nodered/data/lib/
+nodered/data/context/
+nodered/data/flows_cred.json
+
+# Python / Node
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

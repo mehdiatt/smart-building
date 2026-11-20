@@ -1,0 +1,17 @@
+# Owner: Person B
+# Automatically registers InfluxDB as a Grafana data source.
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: influxdb
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: smartbuilding
+      defaultBucket: building
+    secureJsonData:
+      token: ${INFLUX_TOKEN}
