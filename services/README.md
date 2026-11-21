@@ -6,7 +6,7 @@ so they can share `common/contract.py` (the interface contract in code).
 | Service | Day | Reads | Writes | Start |
 |---|---|---|---|---|
 | `fake-producer` | 3 | `simulator/building.json` | `building.telemetry`, `building.alerts` | `docker compose --profile fake up -d` |
-| `storage-consumer` | 3–4 | `building.telemetry`, `building.alerts` | console (day 3), InfluxDB (day 4) | `docker compose up -d` |
+| `storage-consumer` | 3–4 | `building.telemetry`, `building.alerts`, `building.aggregates` | InfluxDB | `docker compose up -d` |
 | `aggregator` | 6 | `building.telemetry` | `building.aggregates` | — |
 | `notifier` | 8 | `building.alerts` | Telegram / email | — |
 
@@ -20,11 +20,22 @@ alerts (max one per sensor and severity every 60 s). Tune it with the environmen
 Stop using it on day 5, once Node-RED produces the real data: start the stack without
 `--profile fake`.
 
-## Storage consumer (console version)
+## Storage consumer
 
-Consumer group `storage`. Prints every alert, every message that breaks the contract
-(`[CONTRACT] ... missing=[...]`), and a summary every 10 s.
+Consumer group `storage`. Writes `telemetry`, `alerts` and `aggregates` measurements to InfluxDB
+(contract section 4). Numbers are always stored as floats so a field never changes type.
+
+**No data loss:** auto-commit is off; Kafka offsets are committed only after InfluxDB confirmed
+the write. If InfluxDB is down, the batch is retried (1 s, 2 s, 4 s … up to 30 s).
+Messages that break the contract are logged as `[CONTRACT] ... missing=[...]` and skipped.
 
 ```bash
 docker compose logs -f storage-consumer
 ```
+
+## Grafana
+
+Dashboard **Smart Building — Overview** is provisioned from `grafana/provisioning/dashboards/`
+(folder *Smart Building*): key figures, CO2 / temperature / humidity / energy by room with
+threshold bands, latest alerts, and a *Floor* filter. Edits made in the Grafana UI are kept in
+Grafana only: export the JSON (Share → Export) into `overview.json` to version them.
