@@ -9,13 +9,14 @@ import time
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
 import paho.mqtt.client as mqtt
 
 
 CONFIG_PATH = Path(__file__).parent / "building.json"
 
-MQTT_BROKER = "localhost"
+MQTT_BROKER = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT = 1883
 MQTT_QOS = 1
 PUBLISH_INTERVAL = 2
@@ -43,13 +44,16 @@ def generate_sensor_reading(sensor, sensor_type, sensor_spec, timestamp):
         value = round(value, 2)
 
     return {
-        "sensorId": sensor["sensorId"],
-        "sensorType": sensor_type,
-        "topic": sensor["topic"],
-        "value": value,
-        "unit": sensor_spec["unit"],
-        "timestamp": timestamp
-    }
+    "sensorId": sensor["sensorId"],
+    "buildingId": sensor["buildingId"],
+    "floor": sensor["floor"],
+    "room": sensor["room"],
+    "sensorType": sensor_type,
+    "topic": sensor["topic"],
+    "value": value,
+    "unit": sensor_spec["unit"],
+    "timestamp": timestamp
+}
 
 
 def generate_readings(config):
@@ -63,9 +67,12 @@ def generate_readings(config):
         for room in floor["rooms"]:
             for sensor_type, sensor_spec in config["sensors"].items():
                 sensor = {
-                    "sensorId": f"{building_id}-{floor['floor']}-{room}-{sensor_type}",
-                    "topic": f"building/{building_id}/{floor['floor']}/{room}/{sensor_type}"
-                }
+    "sensorId": f"{building_id}-{floor['floor']}-{room}-{sensor_type}",
+    "buildingId": building_id,
+    "floor": floor["floor"],
+    "room": room,
+    "topic": f"building/{building_id}/{floor['floor']}/{room}/{sensor_type}"
+}
 
                 reading = generate_sensor_reading(
                     sensor,
