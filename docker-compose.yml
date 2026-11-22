@@ -134,9 +134,47 @@ services:
       - influxdb
     restart: unless-stopped
 
-  # B's services will be added here (days 3 to 8):
-  # fake-producer, storage-consumer, aggregator, notifier
-  #   build: ./services/<name>
+  # Fake producer (day 3): contract-compliant test data, only started with
+  #   docker compose --profile fake up -d
+  fake-producer:
+    build:
+      context: ./services
+      dockerfile: fake-producer/Dockerfile
+    container_name: fake-producer
+    profiles: ["fake"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      INTERVAL_SECONDS: 2
+      ANOMALY_EVERY_SECONDS: 60
+      ANOMALY_DURATION_SECONDS: 20
+      TZ: Europe/Paris
+    volumes:
+      - ./simulator/building.json:/app/building.json:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  storage-consumer:
+    build:
+      context: ./services
+      dockerfile: storage-consumer/Dockerfile
+    container_name: storage-consumer
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      GROUP_ID: storage
+      SUMMARY_SECONDS: 10
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # B's next services (days 6 to 8): aggregator, notifier
+  #   build: { context: ./services, dockerfile: <name>/Dockerfile }
   #   environment:
   #     KAFKA_BOOTSTRAP: kafka:29092
   #     INFLUX_URL: http://influxdb:8086
