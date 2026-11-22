@@ -1,0 +1,342 @@
+[
+    {
+        "id": "2d53dca1b77302fd",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "8535891ea0d3d2fc",
+        "type": "kafkajs-nc-broker",
+        "name": "Kafka ",
+        "brokers": "kafka:29092",
+        "clientId": "node-red",
+        "authMechanism": "none",
+        "tls": false,
+        "tlsConfig": "",
+        "connectionTimeout": 10000,
+        "authenticationTimeout": 10000,
+        "requestTimeout": 30000,
+        "retries": 5,
+        "initialRetryTime": 300,
+        "maxRetryTime": 30000,
+        "reconnectMin": 1000,
+        "reconnectMax": 60000,
+        "authRetryMin": 60000,
+        "logLevel": "warn",
+        "safetyNet": true
+    },
+    {
+        "id": "e3829a69cf8434ab",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "b8593c6e3d9ec444",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Telemetry Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.telemetry",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 900,
+        "y": 360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e7442a5e354453ed",
+        "type": "mqtt in",
+        "z": "2d53dca1b77302fd",
+        "name": "",
+        "topic": "building/#",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "e3829a69cf8434ab",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 300,
+        "wires": [
+            [
+                "529766edb0f9ede4",
+                "45998e0a82d7153f"
+            ]
+        ]
+    },
+    {
+        "id": "45998e0a82d7153f",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Validate Data",
+        "func": "\nconst data = msg.payload;\n\n// Check required fields\nif (\n    !data ||\n    typeof data !== \"object\" ||\n    Array.isArray(data) ||\n    !data.sensorId ||\n    !data.buildingId ||\n    data.floor === undefined ||\n    !data.room ||\n    !data.sensorType ||\n    !data.topic ||\n    data.value === undefined ||\n    !data.unit ||\n    !data.timestamp\n) {\n    msg.validationError = \"Missing required fields\";\n    return [null, msg];\n}\n   \n\n// Check value\nif (typeof data.value !== \"number\" || !Number.isFinite(data.value)) {\n    msg.validationError = \"Invalid sensor value\";\n    return [null, msg];\n}\n\n// Check timestamp\nif (isNaN(Date.parse(data.timestamp))) {\n    msg.validationError = \"Invalid timestamp\";\n    return [null, msg];\n}\n\n// Valid message\nmsg.valid = true;\nreturn [msg, null];\n\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 320,
+        "wires": [
+            [
+                "a6f0a4f9a9e275d8"
+            ],
+            [
+                "95bed4e6b400da60"
+            ]
+        ]
+    },
+    {
+        "id": "a6f0a4f9a9e275d8",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Enrich Data",
+        "func": "\nconst data = msg.payload;\n\nif (!data || typeof data !== \"object\") {\n    node.error(\"Invalid payload in Enrich Data\", msg);\n    return null;\n}\n\n// Extract MQTT topic\nconst topic = data.topic || msg.topic;\nif (!topic || typeof topic !== \"string\") {\n    node.error(\"Missing MQTT topic\", msg);\n    return null;\n}\n\nconst parts = topic.split(\"/\");\n\nif (parts.length !== 5 || parts[0] !== \"building\") {\n    node.error(\"Invalid MQTT topic: \" + topic, msg);\n    return null;\n}\n\n// Generate UUID\nfunction uuid() {\n    return \"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx\".replace(/[xy]/g, c => {\n        const r = Math.random() * 16 | 0;\n        return (c === \"x\" ? r : (r & 0x3 | 0x8)).toString(16);\n    });\n}\n\nconst now = new Date().toISOString();\n\n// Extract location\ndata.buildingId = parts[1];\ndata.floor = Number(parts[2]);\ndata.room = parts[3];\n\n// Zone\ndata.zone = \"bureaux\";\n\n// Contract fields\ndata.schemaVersion = 1;\ndata.messageId = uuid();\ndata.processedAt = now;\n\n// Determine status\nconst type = data.sensorType;\nconst value = Number(data.value);\n\nlet status = \"ok\";\n\nswitch (type) {\n    case \"temperature\":\n        if (value > 28 || value < 16) status = \"critical\";\n        else if (value > 26 || value < 18) status = \"warning\";\n        break;\n\n    case \"humidity\":\n        if (value > 75 || value < 20) status = \"critical\";\n        else if (value > 65 || value < 25) status = \"warning\";\n        break;\n\n    case \"co2\":\n        if (value > 1500) status = \"critical\";\n        else if (value > 1000) status = \"warning\";\n        break;\n\n    case \"energy\":\n        if (value > 5) status = \"critical\";\n        else if (value > 3) status = \"warning\";\n        break;\n}\n\ndata.status = status;\n\n// Kafka message key\nmsg.key = data.room;\n\n// Send enriched message\nmsg.payload = data;\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 570,
+        "y": 360,
+        "wires": [
+            [
+                "b8593c6e3d9ec444",
+                "8772237f82cbd973"
+            ]
+        ]
+    },
+    {
+        "id": "95bed4e6b400da60",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Prepare Invalid Message",
+        "func": "\nconst data = msg.payload;\n\n// Preserve the original message and add rejection metadata\nconst invalidMessage = (data && typeof data === \"object\" && !Array.isArray(data))\n    ? { ...data }\n    : { originalPayload: data };\n\ninvalidMessage.error = msg.validationError || \"Invalid message\";\ninvalidMessage.receivedAt = new Date().toISOString();\n\nmsg.payload = invalidMessage;\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 250,
+        "y": 520,
+        "wires": [
+            [
+                "deef68e8f8fd02b3"
+            ]
+        ]
+    },
+    {
+        "id": "deef68e8f8fd02b3",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Invalid Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.invalid",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 510,
+        "y": 520,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "64f3e0ccddc01ac5",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Alerts Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.alerts",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 870,
+        "y": 520,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8772237f82cbd973",
+        "type": "switch",
+        "z": "2d53dca1b77302fd",
+        "name": "",
+        "property": "payload.status",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "warning",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "critical",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 450,
+        "y": 420,
+        "wires": [
+            [
+                "64f3e0ccddc01ac5"
+            ],
+            [
+                "64f3e0ccddc01ac5"
+            ]
+        ],
+        "outputLabels": [
+            "warning",
+            "critical"
+        ]
+    },
+    {
+        "id": "345402ceddea69ea",
+        "type": "inject",
+        "z": "2d53dca1b77302fd",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{   \"sensorId\": \"TEST-R101\",   \"sensorType\": \"co2\",   \"topic\": \"building/B1/1/R101/co2\",   \"value\": 1600,   \"unit\": \"ppm\" }",
+        "payloadType": "json",
+        "x": 130,
+        "y": 420,
+        "wires": [
+            [
+                "45998e0a82d7153f",
+                "2a7f926b047ba699"
+            ]
+        ]
+    },
+    {
+        "id": "2a7f926b047ba699",
+        "type": "debug",
+        "z": "2d53dca1b77302fd",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 300,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "529766edb0f9ede4",
+        "type": "debug",
+        "z": "2d53dca1b77302fd",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 160,
+        "y": 200,
+        "wires": []
+    }
+]
