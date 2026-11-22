@@ -1,5 +1,4 @@
-﻿
-"""
+﻿"""
 Smart Building MQTT sensor simulator.
 Supports smooth readings, day/night profiles and demo anomalies.
 """
@@ -22,7 +21,14 @@ MQTT_QOS = 1
 PUBLISH_INTERVAL = 2
 
 STATUS_TOPIC = "status/simulator"
-ANOMALY_MODE = os.getenv("ANOMALY_MODE", "none").lower()
+
+# Anomaly configuration
+ANOMALY_MODE = os.getenv("ANOMALY_MODE", "none")
+ANOMALY_ROOM = os.getenv("ANOMALY_ROOM", "")  # Empty = all rooms
+
+# Occupancy configuration
+DAY_OCCUPANCY = int(os.getenv("DAY_OCCUPANCY", "8"))
+FORCE_DAYTIME = os.getenv("FORCE_DAYTIME", "0") == "1"
 
 # Office schedule: Monday-Friday, 08:00-18:00
 OFFICE_START = 8
@@ -40,18 +46,22 @@ def timestamp_utc():
 
 
 def load_config():
+    """Load the building configuration."""
     with CONFIG_PATH.open("r", encoding="utf-8") as file:
         return json.load(file)
 
 
 def is_office_hours():
-    now = datetime.now().astimezone()
-    return (
-        True
-    )
+    """Monday-Friday, OFFICE_START-OFFICE_END local time (or forced for tests)."""
+    if FORCE_DAYTIME:
+        return True
+
+    now = datetime.now()
+    return now.weekday() < 5 and OFFICE_START <= now.hour < OFFICE_END
 
 
 def clamp(value, minimum, maximum):
+    """Keep a value within its allowed range."""
     return max(minimum, min(maximum, value))
 
 
@@ -76,6 +86,7 @@ def generate_sensor_reading(
     timestamp,
     occupancy=0
 ):
+    """Generate one sensor reading."""
     minimum = sensor_spec["min"]
     maximum = sensor_spec["max"]
     normal = sensor_spec["normal"]
@@ -84,15 +95,17 @@ def generate_sensor_reading(
     daytime = is_office_hours()
 
     if sensor_type == "occupancy":
-        target = normal if daytime else 0
+        # Simulate occupancy during office hours
+        target = DAY_OCCUPANCY if daytime else 0
 
         value = smooth_value(
             sensor_id,
             target,
             0,
             maximum,
-            max(1, normal / 5)
+            max(1, DAY_OCCUPANCY / 5)
         )
+
         value = round(value)
 
         # Guarantee zero occupancy at night
@@ -104,10 +117,16 @@ def generate_sensor_reading(
         # CO2 increases with the number of occupants
         target = normal + occupancy * 15
 
-        if ANOMALY_MODE == "co2_warning":
+        # Apply anomalies only to the selected room, if specified
+        anomaly_here = (
+            ANOMALY_MODE != "none"
+            and ANOMALY_ROOM in ("", sensor["room"])
+        )
+
+        if anomaly_here and ANOMALY_MODE == "co2_warning":
             target = max(target, 1100)
 
-        elif ANOMALY_MODE == "co2_critical":
+        elif anomaly_here and ANOMALY_MODE == "co2_critical":
             target = max(target, 1700)
 
         value = smooth_value(
@@ -115,14 +134,15 @@ def generate_sensor_reading(
             target,
             minimum,
             maximum,
-            80 if ANOMALY_MODE != "none" else 12
+            80 if anomaly_here else 12
         )
+
         value = round(value, 2)
 
     else:
+        # Generate normal readings with small natural fluctuations
         target = normal
 
-        # Small natural fluctuations
         value = smooth_value(
             sensor_id,
             target,
@@ -130,6 +150,7 @@ def generate_sensor_reading(
             maximum,
             max((maximum - minimum) * 0.005, 0.1)
         )
+
         value = round(value, 2)
 
     return {
@@ -150,8 +171,6 @@ def generate_readings(config):
     building_id = config["buildingId"]
     timestamp = timestamp_utc()
     readings = []
-
-    daytime = is_office_hours()
 
     for floor in config["floors"]:
         for room in floor["rooms"]:
@@ -178,6 +197,7 @@ def generate_readings(config):
 
             occupancy = 0
 
+            # Generate occupancy before the other sensor readings
             if "occupancy" in room_sensors:
                 sensor, spec = room_sensors["occupancy"]
 
@@ -191,6 +211,7 @@ def generate_readings(config):
                 occupancy = occupancy_reading["value"]
                 readings.append(occupancy_reading)
 
+            # Generate readings for all remaining sensor types
             for sensor_type, (sensor, spec) in room_sensors.items():
                 if sensor_type == "occupancy":
                     continue
@@ -209,6 +230,7 @@ def generate_readings(config):
 
 
 def publish_status(client, status):
+    """Publish the simulator connection status."""
     payload = json.dumps({
         "status": status,
         "timestamp": timestamp_utc()
@@ -223,6 +245,7 @@ def publish_status(client, status):
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
+    """Handle MQTT connection events."""
     if reason_code.is_failure:
         print(f"MQTT connection failed: {reason_code}")
         return
@@ -232,8 +255,8 @@ def on_connect(client, userdata, flags, reason_code, properties):
     print("Simulator connected")
 
 
-
 def publish_readings(client, readings):
+    """Publish all sensor readings to MQTT."""
     for reading in readings:
         result = client.publish(
             reading["topic"],
@@ -251,7 +274,9 @@ def publish_readings(client, readings):
 
 connection_ready = threading.Event()
 
+
 def main():
+    """Start the MQTT sensor simulator."""
     config = load_config()
 
     client = mqtt.Client(
@@ -278,7 +303,12 @@ def main():
         if not connection_ready.wait(timeout=10):
             raise RuntimeError("MQTT connection timeout")
 
-        print(f"Simulator started | anomaly={ANOMALY_MODE}")
+        print(
+            f"Simulator started | "
+            f"anomaly={ANOMALY_MODE} | "
+            f"room={ANOMALY_ROOM or 'all'} | "
+            f"daytime={FORCE_DAYTIME}"
+        )
 
         while True:
             readings = generate_readings(config)
