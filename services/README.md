@@ -7,7 +7,7 @@ so they can share `common/contract.py` (the interface contract in code).
 |---|---|---|---|---|
 | `fake-producer` | 3 | `simulator/building.json` | `building.telemetry`, `building.alerts` | `docker compose --profile fake up -d` |
 | `storage-consumer` | 3–4 | `building.telemetry`, `building.alerts`, `building.aggregates` | InfluxDB | `docker compose up -d` |
-| `aggregator` | 6 | `building.telemetry` | `building.aggregates` | — |
+| `aggregator` | 6 | `building.telemetry` | `building.aggregates` | `docker compose up -d` |
 | `notifier` | 8 | `building.alerts` | Telegram / email | — |
 
 ## Fake producer
@@ -31,6 +31,26 @@ Messages that break the contract are logged as `[CONTRACT] ... missing=[...]` an
 
 ```bash
 docker compose logs -f storage-consumer
+```
+
+## Aggregator
+
+Consumer group `aggregator`. Computes **1-minute tumbling windows per room + sensorType**
+(avg, min, max, count) and publishes them to `building.aggregates` (contract §2.3, key = room).
+The storage consumer then writes them to the InfluxDB measurement `aggregates`.
+
+- **Event time:** a reading goes into the window of its own `timestamp`, not its arrival time,
+  so replaying old data gives the same result.
+- **Closing:** a window is published once `windowEnd + 5 s` is behind the watermark (the oldest
+  latest-timestamp among active partitions). With no data for 10 s, the wall clock is used, so
+  the last windows are still published when the simulator stops.
+- **Late readings** (after their window was published) are counted as `late` and ignored.
+- **Restart safety:** offsets are committed manually, at the oldest message still belonging to an
+  open window. After a crash, Kafka replays from there: open windows are rebuilt, nothing is lost
+  and no window is published twice.
+
+```bash
+docker compose logs -f aggregator
 ```
 
 ## Grafana
