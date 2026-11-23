@@ -11,7 +11,9 @@ nodered/data/*.backup
 nodered/data/lib/
 nodered/data/context/
 nodered/data/flows_cred.json
-
+nodered/data/.npm/ 
+nodered/data/flows.backup.json 
+nodered/data/*.backup.json smart-building_backup/
 # Python / Node
 __pycache__/
 *.pyc

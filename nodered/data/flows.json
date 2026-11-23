@@ -1,0 +1,320 @@
+[
+    {
+        "id": "2d53dca1b77302fd",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "8535891ea0d3d2fc",
+        "type": "kafkajs-nc-broker",
+        "name": "Kafka ",
+        "brokers": "kafka:29092",
+        "clientId": "node-red",
+        "authMechanism": "none",
+        "tls": false,
+        "tlsConfig": "",
+        "connectionTimeout": 10000,
+        "authenticationTimeout": 10000,
+        "requestTimeout": 30000,
+        "retries": 5,
+        "initialRetryTime": 300,
+        "maxRetryTime": 30000,
+        "reconnectMin": 1000,
+        "reconnectMax": 60000,
+        "authRetryMin": 60000,
+        "logLevel": "warn",
+        "safetyNet": true
+    },
+    {
+        "id": "e3829a69cf8434ab",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "b8593c6e3d9ec444",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Telemetry Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.telemetry",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 880,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e7442a5e354453ed",
+        "type": "mqtt in",
+        "z": "2d53dca1b77302fd",
+        "name": "",
+        "topic": "building/#",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "e3829a69cf8434ab",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 60,
+        "y": 180,
+        "wires": [
+            [
+                "45998e0a82d7153f"
+            ]
+        ]
+    },
+    {
+        "id": "45998e0a82d7153f",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Validate Data",
+        "func": "\nconst data = msg.payload;\n\n// 1. Vérifier les données reçues\nif (\n    !data ||\n    typeof data !== \"object\" ||\n    Array.isArray(data) ||\n    !data.sensorId ||\n    !data.sensorType ||\n    data.value === undefined ||\n    !data.unit ||\n    !data.timestamp\n) {\n    msg.validationError = \"Missing required fields\";\n    return [null, msg];\n}\n\n// 2. Vérifier le topic MQTT dans msg.topic\nif (\n    typeof msg.topic !== \"string\" ||\n    msg.topic.length === 0\n) {\n    msg.validationError = \"Missing or invalid MQTT topic\";\n    return [null, msg];\n}\n\n// 3. Vérifier la valeur du capteur\nif (\n    typeof data.value !== \"number\" ||\n    !Number.isFinite(data.value)\n) {\n    msg.validationError = \"Invalid sensor value\";\n    return [null, msg];\n}\n\n// 4. Vérifier le timestamp\nif (\n    typeof data.timestamp !== \"string\" ||\n    isNaN(Date.parse(data.timestamp))\n) {\n    msg.validationError = \"Invalid timestamp\";\n    return [null, msg];\n}\n\n// 5. Message valide\nmsg.valid = true;\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 230,
+        "y": 180,
+        "wires": [
+            [
+                "a6f0a4f9a9e275d8"
+            ],
+            [
+                "95bed4e6b400da60"
+            ]
+        ]
+    },
+    {
+        "id": "a6f0a4f9a9e275d8",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Enrich Data",
+        "func": "// Enrich Data — builds the telemetry message according to contract §2.1\nconst data = msg.payload;\n\nif (\n    !data ||\n    typeof data !== \"object\" ||\n    !data.sensorId ||\n    !data.sensorType ||\n    data.value === undefined ||\n    !data.unit ||\n    !data.timestamp\n) {\n    node.error(\"Invalid telemetry data: missing required fields\", msg);\n    return null;\n}\n\n// Expected MQTT topic: building/B1/2/R203/co2\nconst parts = String(msg.topic || \"\").split(\"/\");\n\nif (parts.length !== 5 || parts[0] !== \"building\") {\n    node.error(\"Invalid MQTT topic: \" + msg.topic, msg);\n    return null;\n}\n\nconst floor = Number(parts[2]);\n\nconst zones = {\n    1: \"reception\",\n    2: \"offices\",\n    3: \"meeting\"\n};\n\nif (!zones[floor]) {\n    node.error(\"Invalid floor: \" + parts[2], msg);\n    return null;\n}\n\nfunction uuid() {\n    return \"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx\".replace(/[xy]/g, c => {\n        const r = Math.random() * 16 | 0;\n        return (c === \"x\" ? r : (r & 0x3 | 0x8)).toString(16);\n    });\n}\n\n// Create a new object containing exactly the contract fields, in the specified order\nmsg.payload = {\n    schemaVersion: 1,\n    messageId: uuid(),\n    sensorId: data.sensorId,\n    buildingId: parts[1],\n    floor: floor,\n    room: parts[3],\n    zone: zones[floor],\n    sensorType: parts[4],\n    value: Number(data.value),\n    unit: data.unit,\n    status: \"ok\", // Recalculated by Calculate Alert Thresholds\n    timestamp: data.timestamp,\n    processedAt: new Date().toISOString()\n};\n\nmsg.key = parts[3]; // Kafka key = room (contract §2)\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 140,
+        "wires": [
+            [
+                "db1e348bd3cdfe62"
+            ]
+        ]
+    },
+    {
+        "id": "95bed4e6b400da60",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Prepare Invalid Message",
+        "func": "\nconst data = msg.payload;\n\n// Preserve the original message and add rejection metadata\nconst invalidMessage = (data && typeof data === \"object\" && !Array.isArray(data))\n    ? { ...data }\n    : { originalPayload: data };\n\ninvalidMessage.error = msg.validationError || \"Invalid message\";\ninvalidMessage.receivedAt = new Date().toISOString();\n\nmsg.payload = invalidMessage;\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 450,
+        "y": 240,
+        "wires": [
+            [
+                "deef68e8f8fd02b3"
+            ]
+        ]
+    },
+    {
+        "id": "deef68e8f8fd02b3",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Invalid Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.invalid",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 710,
+        "y": 240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "64f3e0ccddc01ac5",
+        "type": "kafkajs-nc-producer",
+        "z": "2d53dca1b77302fd",
+        "name": "Building Alerts Producer",
+        "broker": "8535891ea0d3d2fc",
+        "topic": "building.alerts",
+        "key": "",
+        "partition": "",
+        "headers": {},
+        "useMsgHeaders": true,
+        "acks": "all",
+        "ackTimeout": 30000,
+        "compression": "none",
+        "partitioner": "default",
+        "allowAutoTopicCreation": true,
+        "batchSize": 100,
+        "queueMode": "disk",
+        "queueDir": "",
+        "queueName": "",
+        "queueMaxMB": 100,
+        "queueMaxMessages": 0,
+        "queueOverflow": "drop-oldest",
+        "queueMaxAgeHours": 0,
+        "queueFsync": true,
+        "x": 1370,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8772237f82cbd973",
+        "type": "switch",
+        "z": "2d53dca1b77302fd",
+        "name": "",
+        "property": "payload.status",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "warning",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "critical",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 890,
+        "y": 160,
+        "wires": [
+            [
+                "ced8815a620c9349"
+            ],
+            [
+                "ced8815a620c9349"
+            ]
+        ],
+        "outputLabels": [
+            "warning",
+            "critical"
+        ]
+    },
+    {
+        "id": "ced8815a620c9349",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Build Alert + Anti-Spam",
+        "func": "\nconst data = msg.payload;\n\n// ==================================================\n// 1. Validate incoming data\n// ==================================================\n\nif (!data || typeof data !== \"object\" || Array.isArray(data)) {\n    node.warn(\"Alert rejected: invalid payload\");\n    return null;\n}\n\n// ==================================================\n// 2. Validate alert severity\n// ==================================================\n\nconst severity = String(data.status || data.severity || \"\").toLowerCase();\n\nif (!data.sensorId || ![\"warning\", \"critical\"].includes(severity)) {\n    node.warn(\"Alert rejected: invalid sensorId or severity\");\n    return null;\n}\n\n// ==================================================\n// 3. Validate required fields\n// ==================================================\n\nconst required = [\n    \"floor\",\n    \"room\",\n    \"sensorType\",\n    \"value\",\n    \"timestamp\",\n    \"threshold\"\n];\n\nfor (const field of required) {\n    if (\n        data[field] === undefined ||\n        data[field] === null ||\n        data[field] === \"\"\n    ) {\n        node.warn(`Alert rejected: missing ${field}`);\n        return null;\n    }\n}\n\n// ==================================================\n// 4. Determine zone from floor\n// ==================================================\n\nconst zones = {\n    1: \"reception\",\n    2: \"offices\",\n    3: \"meeting\"\n};\n\nconst floor = Number(data.floor);\nconst zone = zones[floor];\n\nif (!Number.isInteger(floor) || !zone) {\n    node.warn(`Alert rejected: invalid floor ${data.floor}`);\n    return null;\n}\n\n// ==================================================\n// 5. Validate threshold\n// ==================================================\n\nconst threshold = Number(data.threshold);\nconst value = Number(data.value);\n\nif (!Number.isFinite(threshold) || !Number.isFinite(value)) {\n    node.warn(\"Alert rejected: invalid value or threshold\");\n    return null;\n}\n\n// ==================================================\n// 6. Anti-spam: one alert per sensor/severity\n//    every 60 seconds\n// ==================================================\n\nconst now = Date.now();\nconst key = `alert_${data.sensorId}_${severity}`;\nconst lastSent = context.get(key) || 0;\n\nif (now - lastSent < 60000) {\n    node.warn(`Alert suppressed by anti-spam: ${data.sensorId}`);\n    return null;\n}\n\n// ==================================================\n// 7. Build the alert payload\n//    Exactly 12 fields (Contract §2.2)\n// ==================================================\n\nconst alert = {\n    alertId: `${data.sensorId}-${severity}-${now}`,\n    schemaVersion: 1,\n    sensorId: data.sensorId,\n    floor: floor,\n    room: data.room,\n    zone: zone,\n    sensorType: data.sensorType,\n    value: value,\n    threshold: threshold,\n    severity: severity,\n    message: `${data.sensorType} ${severity} in ${data.room}: ${value}`,\n    timestamp: data.timestamp\n};\n\n// ==================================================\n// 8. Save anti-spam timestamp\n// ==================================================\n\ncontext.set(key, now);\n\n// ==================================================\n// 9. Prepare Kafka message\n// ==================================================\n\nmsg.topic = \"building.alerts\";\nmsg.payload = alert;\nmsg.qos = 1;\nmsg.retain = false;\nmsg.key = data.room;\nreturn msg;\n\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1110,
+        "y": 160,
+        "wires": [
+            [
+                "64f3e0ccddc01ac5"
+            ]
+        ]
+    },
+    {
+        "id": "db1e348bd3cdfe62",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": "Calculate Alert Thresholds",
+        "func": "\nconst data = msg.payload;\n\n// ==================================================\n// 1. Validate incoming telemetry\n// ==================================================\n\nif (!data || typeof data !== \"object\" || Array.isArray(data)) {\n    return reject(\"Invalid telemetry payload\");\n}\n\nif (\n    !data.sensorId ||\n    !data.room ||\n    !data.sensorType ||\n    data.value === undefined ||\n    data.value === null ||\n    !data.timestamp\n) {\n    return reject(\"Missing required telemetry field\");\n}\n\nconst value = Number(data.value);\nconst type = String(data.sensorType).toLowerCase();\n\nif (!Number.isFinite(value)) {\n    return reject(\"Sensor value must be a valid number\");\n}\n\n// ==================================================\n// 2. Validate physical limits\n// Invalid measurements go to building.invalid\n// ==================================================\n\nconst physicalLimits = {\n    temperature: { min: -40, max: 80 },\n    humidity: { min: 0, max: 100 },\n    co2: { min: 0, max: 10000 },\n    occupancy: { min: 0, max: 200 },\n    energy: { min: 0, max: 100 }\n};\n\nif (!physicalLimits[type]) {\n    return reject(\"Unknown sensor type\");\n}\n\nconst limits = physicalLimits[type];\n\nif (value < limits.min || value > limits.max) {\n    return reject(\"Sensor value outside physical limits\");\n}\n\nif (type === \"occupancy\" && !Number.isInteger(value)) {\n    return reject(\"Occupancy value must be an integer\");\n}\n\n// ==================================================\n// 3. Calculate alert thresholds\n// ==================================================\n\nlet status = \"ok\";\nlet threshold = null;\n\n// Temperature\nif (type === \"temperature\") {\n\n    if (value > 28) {\n        status = \"critical\";\n        threshold = 28;\n    } else if (value < 16) {\n        status = \"critical\";\n        threshold = 16;\n    } else if (value > 26) {\n        status = \"warning\";\n        threshold = 26;\n    } else if (value < 18) {\n        status = \"warning\";\n        threshold = 18;\n    }\n}\n\n// Humidity\nelse if (type === \"humidity\") {\n\n    if (value > 75) {\n        status = \"critical\";\n        threshold = 75;\n    } else if (value < 20) {\n        status = \"critical\";\n        threshold = 20;\n    } else if (value > 65) {\n        status = \"warning\";\n        threshold = 65;\n    } else if (value < 25) {\n        status = \"warning\";\n        threshold = 25;\n    }\n}\n\n// CO2\nelse if (type === \"co2\") {\n\n    if (value > 1500) {\n        status = \"critical\";\n        threshold = 1500;\n    } else if (value > 1000) {\n        status = \"warning\";\n        threshold = 1000;\n    }\n}\n\n// Occupancy\nelse if (type === \"occupancy\") {\n\n    const date = new Date(data.timestamp);\n\n    if (Number.isNaN(date.getTime())) {\n        return reject(\"Invalid timestamp\");\n    }\n\n    const hour = Number(\n        new Intl.DateTimeFormat(\"en-GB\", {\n            timeZone: \"Europe/Madrid\",\n            hour: \"2-digit\",\n            hourCycle: \"h23\"\n        }).format(date)\n    );\n\n    if (value > 0 && (hour >= 22 || hour < 6)) {\n        status = \"critical\";\n        threshold = 0;\n    }\n}\n\n// Energy\nelse if (type === \"energy\") {\n\n    if (value > 5) {\n        status = \"critical\";\n        threshold = 5;\n    } else if (value > 3) {\n        status = \"warning\";\n        threshold = 3;\n    }\n}\n\n// ==================================================\n// 4. Enrich telemetry with threshold results\n// ==================================================\n\ndata.sensorType = type;\ndata.value = value;\ndata.status = status;\ndata.threshold = threshold;\n\nmsg.payload = data;\n\n// ==================================================\n// 5. Send valid telemetry to the Switch\n// ==================================================\n\nreturn [msg, null];\n\n// ==================================================\n// 6. Route invalid telemetry to building.invalid\n// ==================================================\n\nfunction reject(reason) {\n\n    const invalidMsg = {\n        ...msg,\n        payload: {\n            ...data,\n            error: reason,\n            receivedAt: new Date().toISOString()\n        },\n        topic: \"building.invalid\",\n        qos: 1,\n        retain: false\n    };\n\n    return [null, invalidMsg];\n}\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 140,
+        "wires": [
+            [
+                "8772237f82cbd973",
+                "b8593c6e3d9ec444"
+            ],
+            [
+                "deef68e8f8fd02b3"
+            ]
+        ]
+    }
+]
