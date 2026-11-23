@@ -166,11 +166,17 @@ services:
       KAFKA_BOOTSTRAP: kafka:29092
       GROUP_ID: storage
       SUMMARY_SECONDS: 10
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ORG: smartbuilding
+      INFLUX_BUCKET: building
     depends_on:
       kafka:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      influxdb:
+        condition: service_started
     restart: unless-stopped
 
   # B's next services (days 6 to 8): aggregator, notifier
