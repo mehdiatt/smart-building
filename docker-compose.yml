@@ -179,7 +179,27 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # B's next services (days 6 to 8): aggregator, notifier
+  # Aggregator (day 6): 1-minute windows per room + sensorType -> building.aggregates
+  aggregator:
+    build:
+      context: ./services
+      dockerfile: aggregator/Dockerfile
+    container_name: aggregator
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      GROUP_ID: aggregator
+      WINDOW_SECONDS: 60
+      ALLOWED_LATENESS_SECONDS: 5
+      IDLE_SECONDS: 10
+      SUMMARY_SECONDS: 30
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # B's next service (day 8): notifier
   #   build: { context: ./services, dockerfile: <name>/Dockerfile }
   #   environment:
   #     KAFKA_BOOTSTRAP: kafka:29092
