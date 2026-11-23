@@ -1,4 +1,5 @@
-﻿"""
+﻿
+"""
 Smart Building MQTT sensor simulator.
 Supports smooth readings, day/night profiles and demo anomalies.
 """
@@ -10,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 import threading
+
 import paho.mqtt.client as mqtt
 
 
@@ -24,11 +26,19 @@ STATUS_TOPIC = "status/simulator"
 
 # Anomaly configuration
 ANOMALY_MODE = os.getenv("ANOMALY_MODE", "none")
-ANOMALY_ROOM = os.getenv("ANOMALY_ROOM", "")  # Empty = all rooms
+ANOMALY_ROOM = os.getenv("ANOMALY_ROOM", "")
 
 # Occupancy configuration
 DAY_OCCUPANCY = int(os.getenv("DAY_OCCUPANCY", "8"))
 FORCE_DAYTIME = os.getenv("FORCE_DAYTIME", "0") == "1"
+
+# Ventilation configuration
+COMMAND_TOPIC = "cmd/#"
+VENTILATION_TARGET = 450
+VENTILATION_STEP = 40
+
+# Room ventilation states
+ventilation_on = {}
 
 # Office schedule: Monday-Friday, 08:00-18:00
 OFFICE_START = 8
@@ -36,6 +46,9 @@ OFFICE_END = 18
 
 # Previous values, indexed by sensor ID
 previous_values = {}
+
+# MQTT connection event
+connection_ready = threading.Event()
 
 
 def timestamp_utc():
@@ -52,12 +65,16 @@ def load_config():
 
 
 def is_office_hours():
-    """Monday-Friday, OFFICE_START-OFFICE_END local time (or forced for tests)."""
+    """Check office hours or force daytime for tests."""
     if FORCE_DAYTIME:
         return True
 
     now = datetime.now()
-    return now.weekday() < 5 and OFFICE_START <= now.hour < OFFICE_END
+
+    return (
+        now.weekday() < 5
+        and OFFICE_START <= now.hour < OFFICE_END
+    )
 
 
 def clamp(value, minimum, maximum):
@@ -72,10 +89,16 @@ def smooth_value(sensor_id, target, minimum, maximum, step):
     difference = target - previous
     movement = clamp(difference, -step, step)
 
-    value = previous + movement + random.uniform(-step * 0.2, step * 0.2)
+    value = (
+        previous
+        + movement
+        + random.uniform(-step * 0.2, step * 0.2)
+    )
+
     value = clamp(value, minimum, maximum)
 
     previous_values[sensor_id] = value
+
     return value
 
 
@@ -87,6 +110,7 @@ def generate_sensor_reading(
     occupancy=0
 ):
     """Generate one sensor reading."""
+
     minimum = sensor_spec["min"]
     maximum = sensor_spec["max"]
     normal = sensor_spec["normal"]
@@ -94,8 +118,11 @@ def generate_sensor_reading(
     sensor_id = sensor["sensorId"]
     daytime = is_office_hours()
 
+    # -----------------------------------------
+    # OCCUPANCY SENSOR
+    # -----------------------------------------
     if sensor_type == "occupancy":
-        # Simulate occupancy during office hours
+
         target = DAY_OCCUPANCY if daytime else 0
 
         value = smooth_value(
@@ -113,11 +140,16 @@ def generate_sensor_reading(
             value = 0
             previous_values[sensor_id] = 0
 
+    # -----------------------------------------
+    # CO2 SENSOR
+    # -----------------------------------------
     elif sensor_type == "co2":
+
         # CO2 increases with the number of occupants
         target = normal + occupancy * 15
+        step = 12
 
-        # Apply anomalies only to the selected room, if specified
+        # Apply anomalies only to the selected room
         anomaly_here = (
             ANOMALY_MODE != "none"
             and ANOMALY_ROOM in ("", sensor["room"])
@@ -125,22 +157,32 @@ def generate_sensor_reading(
 
         if anomaly_here and ANOMALY_MODE == "co2_warning":
             target = max(target, 1100)
+            step = 80
 
         elif anomaly_here and ANOMALY_MODE == "co2_critical":
             target = max(target, 1700)
+            step = 80
+
+        # Ventilation overrides anomalies
+        if ventilation_on.get(sensor["room"], False):
+            target = VENTILATION_TARGET
+            step = VENTILATION_STEP
 
         value = smooth_value(
             sensor_id,
             target,
             minimum,
             maximum,
-            80 if anomaly_here else 12
+            step
         )
 
         value = round(value, 2)
 
+    # -----------------------------------------
+    # OTHER SENSORS
+    # -----------------------------------------
     else:
-        # Generate normal readings with small natural fluctuations
+
         target = normal
 
         value = smooth_value(
@@ -168,18 +210,23 @@ def generate_sensor_reading(
 
 def generate_readings(config):
     """Generate readings for every configured sensor."""
+
     building_id = config["buildingId"]
     timestamp = timestamp_utc()
+
     readings = []
 
     for floor in config["floors"]:
+
         for room in floor["rooms"]:
 
             room_sensors = {}
 
             for sensor_type, sensor_spec in config["sensors"].items():
+
                 sensor_id = (
-                    f"{building_id}-{floor['floor']}-{room}-{sensor_type}"
+                    f"{building_id}-{floor['floor']}-"
+                    f"{room}-{sensor_type}"
                 )
 
                 sensor = {
@@ -188,17 +235,21 @@ def generate_readings(config):
                     "floor": floor["floor"],
                     "room": room,
                     "topic": (
-                        f"building/{building_id}/{floor['floor']}/"
-                        f"{room}/{sensor_type}"
+                        f"building/{building_id}/"
+                        f"{floor['floor']}/{room}/{sensor_type}"
                     )
                 }
 
-                room_sensors[sensor_type] = (sensor, sensor_spec)
+                room_sensors[sensor_type] = (
+                    sensor,
+                    sensor_spec
+                )
 
             occupancy = 0
 
-            # Generate occupancy before the other sensor readings
+            # Generate occupancy before other sensors
             if "occupancy" in room_sensors:
+
                 sensor, spec = room_sensors["occupancy"]
 
                 occupancy_reading = generate_sensor_reading(
@@ -209,10 +260,12 @@ def generate_readings(config):
                 )
 
                 occupancy = occupancy_reading["value"]
+
                 readings.append(occupancy_reading)
 
-            # Generate readings for all remaining sensor types
+            # Generate all remaining sensors
             for sensor_type, (sensor, spec) in room_sensors.items():
+
                 if sensor_type == "occupancy":
                     continue
 
@@ -230,7 +283,8 @@ def generate_readings(config):
 
 
 def publish_status(client, status):
-    """Publish the simulator connection status."""
+    """Publish simulator connection status."""
+
     payload = json.dumps({
         "status": status,
         "timestamp": timestamp_utc()
@@ -246,18 +300,70 @@ def publish_status(client, status):
 
 def on_connect(client, userdata, flags, reason_code, properties):
     """Handle MQTT connection events."""
+
     if reason_code.is_failure:
         print(f"MQTT connection failed: {reason_code}")
         return
 
     publish_status(client, "online")
+
+    client.subscribe(COMMAND_TOPIC, qos=1)
+
     connection_ready.set()
+
     print("Simulator connected")
+
+
+def on_message(client, userdata, message):
+    """Apply ventilation commands."""
+
+    # Expected topic:
+    # cmd/{building}/{floor}/{room}/ventilation
+
+    parts = message.topic.split("/")
+
+    if (
+        len(parts) != 5
+        or parts[0] != "cmd"
+        or parts[4] != "ventilation"
+    ):
+        print(f"[CMD] Ignored topic: {message.topic}")
+        return
+
+    try:
+        command = json.loads(message.payload)
+
+        action = command["action"]
+
+    except (ValueError, KeyError, TypeError):
+        print(
+            f"[CMD] Invalid payload on {message.topic}: "
+            f"{message.payload!r}"
+        )
+        return
+
+    if action not in ("on", "off"):
+        print(
+            f"[CMD] Unknown action {action!r} "
+            f"on {message.topic}"
+        )
+        return
+
+    room = parts[3]
+
+    ventilation_on[room] = (action == "on")
+
+    print(
+        f"[CMD] {room} ventilation {action.upper()} "
+        f"({command.get('reason', '-')})"
+    )
 
 
 def publish_readings(client, readings):
     """Publish all sensor readings to MQTT."""
+
     for reading in readings:
+
         result = client.publish(
             reading["topic"],
             json.dumps(reading),
@@ -265,6 +371,7 @@ def publish_readings(client, readings):
         )
 
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
+
             print(
                 f"Publish failed: {reading['topic']} "
                 f"| rc={result.rc} "
@@ -272,11 +379,9 @@ def publish_readings(client, readings):
             )
 
 
-connection_ready = threading.Event()
-
-
 def main():
     """Start the MQTT sensor simulator."""
+
     config = load_config()
 
     client = mqtt.Client(
@@ -285,6 +390,7 @@ def main():
     )
 
     client.on_connect = on_connect
+    client.on_message = on_message
 
     client.will_set(
         STATUS_TOPIC,
@@ -297,7 +403,13 @@ def main():
     )
 
     try:
-        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+
+        client.connect(
+            MQTT_BROKER,
+            MQTT_PORT,
+            keepalive=60
+        )
+
         client.loop_start()
 
         if not connection_ready.wait(timeout=10):
@@ -311,19 +423,27 @@ def main():
         )
 
         while True:
+
             readings = generate_readings(config)
+
             publish_readings(client, readings)
+
             time.sleep(PUBLISH_INTERVAL)
 
     except KeyboardInterrupt:
+
         print("Stopping simulator...")
 
     finally:
+
         if client.is_connected():
+
             publish_status(client, "offline")
+
             client.disconnect()
 
         client.loop_stop()
+
         print("Simulator stopped")
 
 
