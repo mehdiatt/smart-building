@@ -84,8 +84,8 @@
         "queueOverflow": "drop-oldest",
         "queueMaxAgeHours": 0,
         "queueFsync": true,
-        "x": 880,
-        "y": 60,
+        "x": 900,
+        "y": 80,
         "wires": [
             []
         ]
@@ -310,11 +310,50 @@
         "wires": [
             [
                 "8772237f82cbd973",
-                "b8593c6e3d9ec444"
+                "b8593c6e3d9ec444",
+                "a1fd6347c7fef70b"
             ],
             [
                 "deef68e8f8fd02b3"
             ]
         ]
+    },
+    {
+        "id": "a1fd6347c7fef70b",
+        "type": "function",
+        "z": "2d53dca1b77302fd",
+        "name": " Ventilation Control",
+        "func": "// Ventilation Control — CO2 control loop (day 7) //\n// Input : telemetry from \"Calculate Alert Thresholds\" (output 1) \n// Output: MQTT command on cmd/{building}/{floor}/{room}/ventilation (contract §1.2) \nconst d = msg.payload; \nif (!d || d.sensorType !== \"co2\") {  \n  return null;                        // only CO2 drives the ventilation \n} \nconst ON_ABOVE = 1500;                  // critical threshold (contract §3) -> switch on\nconst OFF_BELOW = 800;                  // back to a healthy level -> switch off \nconst key = \"ventilation_\" + d.room; \nconst state = context.get(key);         // true = on, false = off, undefined = unknown \nlet action = null; \nlet reason = null; \nif (state !== true && d.value > ON_ABOVE) {  \n    action = \"on\"; \n    reason = \"co2_critical\"; \n} \nelse if (state !== false && d.value < OFF_BELOW) {\n    action = \"off\";\n    reason = \"co2_normal\"; \n}\n if (action === null) {   \n     return null;                        // nothing changes: no command\n}\ncontext.set(key, action === \"on\");\nnode.status({\n    fill: action === \"on\" ? \"red\" : \"green\", \n    shape: \"dot\",\n    text: d.room + \" ventilation \" + action \n});\n return {\n    topic: \"cmd/\" + d.buildingId + \"/\" + d.floor + \"/\" + d.room + \"/ventilation\",\n    payload: {\n        action: action,\n        reason: reason,\n        timestamp: new Date().toISOString()\n    },\n    qos: 1, \n   retain: false };\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 630,
+        "y": 80,
+        "wires": [
+            [
+                "fbbd541a291d7fa2"
+            ]
+        ]
+    },
+    {
+        "id": "fbbd541a291d7fa2",
+        "type": "mqtt out",
+        "z": "2d53dca1b77302fd",
+        "name": "Ventilation Command",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "e3829a69cf8434ab",
+        "x": 880,
+        "y": 20,
+        "wires": []
     }
 ]

@@ -17,7 +17,8 @@ services:
     restart: unless-stopped
 
   nodered:
-    image: nodered/node-red:4.0
+    build: ./nodered
+    image: smart-building-nodered
     container_name: nodered
     ports:
       - "${NODERED_PORT:-1880}:1880"
