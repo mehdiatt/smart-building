@@ -13,6 +13,13 @@ If InfluxDB is down, the batch is retried until it succeeds.
 
 Messages that break the contract are logged ([CONTRACT]) and skipped.
 
+Pipeline latency (day 9): for every telemetry message written, three delays are measured
+  ingest   = processedAt - timestamp      (sensor -> MQTT -> Node-RED)
+  pipeline = written    - processedAt     (Node-RED -> Kafka -> consumer -> InfluxDB)
+  total    = written    - timestamp       (end to end)
+Every SUMMARY_SECONDS their avg / p95 / max and the throughput are written to the
+InfluxDB measurement "pipeline_latency" (shown in Grafana) and printed in the logs.
+
 Environment variables:
   KAFKA_BOOTSTRAP   default kafka:29092 (use localhost:9092 outside Docker)
   GROUP_ID          default storage
@@ -29,7 +36,7 @@ import signal
 import sys
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from confluent_kafka import Consumer, KafkaError
@@ -69,6 +76,27 @@ signal.signal(signal.SIGTERM, stop)
 def parse_time(value: str) -> datetime:
     """ISO 8601 with a Z suffix -> aware datetime."""
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile of a non-empty list."""
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, round(pct / 100 * len(ordered)) - 1))
+    return ordered[index]
+
+
+def latency_point(lat: dict, window_seconds: float) -> Point | None:
+    """Summary of the latencies measured during one window, or None if nothing was written."""
+    if not lat["total"]:
+        return None
+    point = Point("pipeline_latency").field("messages", float(len(lat["total"]))) \
+        .field("throughput", len(lat["total"]) / window_seconds)
+    for name, values in lat.items():
+        if values:
+            point.field(f"avg_{name}_ms", sum(values) / len(values))
+            point.field(f"p95_{name}_ms", float(percentile(values, 95)))
+            point.field(f"max_{name}_ms", float(max(values)))
+    return point.time(datetime.now(timezone.utc), WritePrecision.MS)
 
 
 def to_point(topic: str, data: dict) -> Point:
@@ -150,11 +178,13 @@ def main():
     counts = Counter()
     last_summary = time.time()
     written_ms = []
+    latencies = {"ingest": [], "pipeline": [], "total": []}
 
     try:
         while running:
             messages = consumer.consume(num_messages=BATCH_SIZE, timeout=1.0)
             points = []
+            stamps = []          # (reading time, processedAt) of each telemetry message, epoch seconds
             for msg in messages:
                 if msg.error():
                     if msg.error().code() != KafkaError._PARTITION_EOF:
@@ -184,6 +214,12 @@ def main():
                     continue
 
                 counts[topic] += 1
+                if topic == TOPIC_TELEMETRY:
+                    try:
+                        stamps.append((parse_time(data["timestamp"]).timestamp(),
+                                       parse_time(data["processedAt"]).timestamp()))
+                    except (ValueError, AttributeError):
+                        pass
                 if topic == TOPIC_ALERTS:
                     print(f"[ALERT] {data['severity']} {data['room']} {data['sensorType']}="
                           f"{data['value']} - {data['message']}", flush=True)
@@ -191,19 +227,39 @@ def main():
             if points:
                 started = time.time()
                 write_with_retry(write_api, points)
-                written_ms.append((time.time() - started) * 1000)
+                written_at = time.time()
+                written_ms.append((written_at - started) * 1000)
                 counts["written"] += len(points)
+                for reading_ts, processed_ts in stamps:
+                    latencies["ingest"].append((processed_ts - reading_ts) * 1000)
+                    latencies["pipeline"].append((written_at - processed_ts) * 1000)
+                    latencies["total"].append((written_at - reading_ts) * 1000)
             if messages:
                 consumer.commit(asynchronous=False)
 
             if time.time() - last_summary >= SUMMARY_SECONDS:
+                window = time.time() - last_summary
                 avg_ms = sum(written_ms) / len(written_ms) if written_ms else 0
                 print(f"--- last {SUMMARY_SECONDS:.0f}s: written={counts['written']} "
                       f"(telemetry={counts[TOPIC_TELEMETRY]} alerts={counts[TOPIC_ALERTS]} "
                       f"aggregates={counts[TOPIC_AGGREGATES]}) skipped={counts['skipped']} "
                       f"avg_write={avg_ms:.0f}ms", flush=True)
+                point = latency_point(latencies, window)
+                if point is not None:
+                    write_with_retry(write_api, [point])
+                    total = latencies["total"]
+                    print(f"    latency ms: total avg={sum(total) / len(total):.0f} "
+                          f"p95={percentile(total, 95):.0f} max={max(total):.0f} | "
+                          f"ingest avg={sum(latencies['ingest']) / len(total):.0f} | "
+                          f"pipeline avg={sum(latencies['pipeline']) / len(total):.0f} | "
+                          f"throughput={len(total) / window:.1f} msg/s", flush=True)
+                    if min(total) < -100:
+                        print("    [WARN] negative latency: the clocks of the PC and of Docker "
+                              "are out of sync (wsl --shutdown then restart Docker Desktop)", flush=True)
                 counts.clear()
                 written_ms.clear()
+                for values in latencies.values():
+                    values.clear()
                 last_summary = time.time()
     finally:
         consumer.close()

@@ -29,6 +29,11 @@ Consumer group `storage`. Writes `telemetry`, `alerts` and `aggregates` measurem
 the write. If InfluxDB is down, the batch is retried (1 s, 2 s, 4 s … up to 30 s).
 Messages that break the contract are logged as `[CONTRACT] ... missing=[...]` and skipped.
 
+**Pipeline latency:** for each telemetry message written, the consumer measures
+`ingest` (sensor → Node-RED, `processedAt - timestamp`), `pipeline` (Node-RED → InfluxDB) and
+`total` (end to end). Every 10 s it writes avg / p95 / max and the throughput to the InfluxDB
+measurement `pipeline_latency` and prints them in its logs (`latency ms: total avg=… p95=…`).
+
 ```bash
 docker compose logs -f storage-consumer
 ```
@@ -76,6 +81,8 @@ docker compose logs -f notifier
 ## Grafana
 
 Dashboard **Smart Building — Overview** is provisioned from `grafana/provisioning/dashboards/`
-(folder *Smart Building*): key figures, CO2 / temperature / humidity / energy by room with
-threshold bands, latest alerts, and a *Floor* filter. Edits made in the Grafana UI are kept in
+(folder *Smart Building*): key figures (messages, rooms, warnings, critical alerts, latency p95,
+throughput), CO2 / temperature / humidity / energy by room on fixed scales with threshold bands,
+1-minute CO2 averages from the aggregator, pipeline latency, latest alerts, alert annotations
+(red = critical, orange = warning, toggles at the top) and a *Floor* filter. Edits made in the Grafana UI are kept in
 Grafana only: export the JSON (Share → Export) into `overview.json` to version them.

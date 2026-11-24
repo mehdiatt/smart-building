@@ -73,7 +73,7 @@ def timestamp_utc():
     """Return UTC timestamp ending with Z."""
 
     return datetime.now(timezone.utc).isoformat(
-        timespec="seconds"
+        timespec="milliseconds"
     ).replace("+00:00", "Z")
 
 
@@ -413,7 +413,7 @@ def generate_sensor_reading(
             target += 0.70
 
         # Equipment load according to occupancy
-        target += occupancy_ratio * 2.0
+        target += occupancy_ratio * 1.2
 
         # Ventilation electricity consumption
         if ventilation_active:
