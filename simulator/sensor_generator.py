@@ -287,7 +287,7 @@ def generate_sensor_reading(
 
         # Ventilation increases CO2 removal
         if ventilation_active and not ventilation_failure:
-            removal_rate = 0.08
+            removal_rate = 0.8
         # CO2 anomaly intensity
         intensity = anomaly_intensity()
 
