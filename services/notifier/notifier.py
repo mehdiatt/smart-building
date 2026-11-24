@@ -21,6 +21,8 @@ Environment variables
   MAX_AGE_SECONDS      default 300
   GROUP_THRESHOLD      default 3
   TZ                   default Europe/Paris (time zone used in the messages)
+  TELEGRAM_FORCE_IPV4  default 1: reach Telegram over IPv4 only (some networks have a broken
+                       IPv6 route: the connection opens but no answer ever comes back)
 
 Helper to find your chat id (send any message to your bot first):
   docker compose run --rm notifier python notifier.py --find-chat-id
@@ -29,6 +31,7 @@ import html
 import json
 import os
 import signal
+import socket
 import sys
 import time
 import urllib.error
@@ -54,6 +57,15 @@ API = "https://api.telegram.org/bot{token}/{method}"
 LOCAL_TZ = ZoneInfo(os.getenv("TZ", "Europe/Paris"))   # time shown in the messages
 
 DRY_RUN = not (TOKEN and CHAT_ID)
+
+if os.getenv("TELEGRAM_FORCE_IPV4", "1") == "1":
+    # Only affects Python's own connections (Telegram); Kafka uses librdkafka and is untouched.
+    _getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_only(host, port, family=0, *args, **kwargs):
+        return _getaddrinfo(host, port, socket.AF_INET, *args, **kwargs)
+
+    socket.getaddrinfo = _ipv4_only
 
 ICONS = {"critical": "🔴", "warning": "🟠"}
 LABELS = {"temperature": "Temperature", "humidity": "Humidity", "co2": "CO₂",
