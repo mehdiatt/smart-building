@@ -280,14 +280,14 @@ def generate_sensor_reading(
         )
 
         # CO2 production: maximum 100 ppm/min
-        production = occupancy_ratio * 100
+        production = occupancy_ratio * 30
 
         # Natural air renewal
-        removal_rate = 0.015
+        removal_rate = 0.08
 
         # Ventilation increases CO2 removal
         if ventilation_active and not ventilation_failure:
-            removal_rate = 0.12
+            removal_rate = 0.08
         # CO2 anomaly intensity
         intensity = anomaly_intensity()
 
@@ -297,6 +297,9 @@ def generate_sensor_reading(
             anomaly_target = 1100
 
         elif anomaly_here and ANOMALY_MODE == "co2_critical":
+            anomaly_target = 1700
+
+        elif anomaly_here and ANOMALY_MODE == "ventilation_failure":
             anomaly_target = 1700
 
         # Anomaly gradually pushes CO2 towards its target
