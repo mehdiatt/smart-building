@@ -8,7 +8,7 @@ so they can share `common/contract.py` (the interface contract in code).
 | `fake-producer` | 3 | `simulator/building.json` | `building.telemetry`, `building.alerts` | `docker compose --profile fake up -d` |
 | `storage-consumer` | 3–4 | `building.telemetry`, `building.alerts`, `building.aggregates` | InfluxDB | `docker compose up -d` |
 | `aggregator` | 6 | `building.telemetry` | `building.aggregates` | `docker compose up -d` |
-| `notifier` | 8 | `building.alerts` | Telegram / email | — |
+| `notifier` | 8 | `building.alerts` | Telegram (or console in DRY-RUN) | `docker compose up -d` |
 
 ## Fake producer
 
@@ -51,6 +51,26 @@ The storage consumer then writes them to the InfluxDB measurement `aggregates`.
 
 ```bash
 docker compose logs -f aggregator
+```
+
+## Notifier
+
+Consumer group `notifier`. Sends every alert of `building.alerts` to a Telegram chat
+(🔴 critical / 🟠 warning, room, value, threshold, floor, zone, local time).
+
+- **DRY-RUN:** without `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`, messages are only
+  printed in the logs, so the stack still works on any PC.
+- **No flood:** first start begins at the end of the topic; alerts older than 5 min are not sent;
+  more than 3 alerts at once are grouped into one message.
+- **At-least-once:** the Kafka offset is committed after Telegram accepted the message; network
+  errors are retried (1 s → 60 s). A wrong token / chat id is reported clearly and not retried.
+
+Setup: create a bot with **@BotFather** in Telegram, put the token in `.env`, send "hello" to the
+bot, then `docker compose run --rm notifier python notifier.py --find-chat-id` and copy the
+chat id into `.env`. Restart with `docker compose up -d notifier`.
+
+```bash
+docker compose logs -f notifier
 ```
 
 ## Grafana
