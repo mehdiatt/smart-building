@@ -7,11 +7,73 @@
   "timezone": "browser",
   "refresh": "5s",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "time": {
     "from": "now-15m",
     "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Critical alerts",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "target": {
+          "refId": "Anno",
+          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"alerts\" and r._field == \"message\" and r.severity == \"critical\")\n  |> filter(fn: (r) => \"${floor}\" == \"All\" or r.floor == \"${floor}\")\n  |> group()\n  |> map(fn: (r) => ({_time: r._time, text: r.room + \" · \" + r.sensorType + \" · \" + r._value}))"
+        },
+        "mappings": {
+          "time": {
+            "source": "field",
+            "value": "_time"
+          },
+          "text": {
+            "source": "field",
+            "value": "text"
+          }
+        }
+      },
+      {
+        "name": "Warning alerts",
+        "enable": true,
+        "iconColor": "orange",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "target": {
+          "refId": "Anno",
+          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"alerts\" and r._field == \"message\" and r.severity == \"warning\")\n  |> filter(fn: (r) => \"${floor}\" == \"All\" or r.floor == \"${floor}\")\n  |> group()\n  |> map(fn: (r) => ({_time: r._time, text: r.room + \" · \" + r.sensorType + \" · \" + r._value}))"
+        },
+        "mappings": {
+          "time": {
+            "source": "field",
+            "value": "_time"
+          },
+          "text": {
+            "source": "field",
+            "value": "text"
+          }
+        }
+      }
+    ]
   },
   "templating": {
     "list": [
@@ -61,7 +123,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "targets": [
@@ -77,6 +139,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -111,9 +174,9 @@
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 6,
+        "x": 4,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "targets": [
@@ -129,6 +192,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -163,9 +227,9 @@
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "targets": [
@@ -181,6 +245,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -219,9 +284,9 @@
         "uid": "influxdb"
       },
       "gridPos": {
-        "x": 18,
+        "x": 12,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "targets": [
@@ -237,6 +302,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -268,6 +334,122 @@
     },
     {
       "id": 5,
+      "type": "stat",
+      "title": "End-to-end latency p95",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"building\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"pipeline_latency\" and r._field == \"p95_total_ms\")\n  |> last()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 3000
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Throughput",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"building\")\n  |> range(start: -1m)\n  |> filter(fn: (r) => r._measurement == \"pipeline_latency\" and r._field == \"throughput\")\n  |> last()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "msg/s",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
       "type": "timeseries",
       "title": "CO2 by room",
       "datasource": {
@@ -293,6 +475,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ppm",
+          "min": 400,
+          "max": 2000,
           "displayName": "${__field.labels.room}",
           "thresholds": {
             "mode": "absolute",
@@ -316,7 +500,8 @@
               "mode": "line+area"
             },
             "lineWidth": 1,
-            "fillOpacity": 0
+            "fillOpacity": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -334,7 +519,7 @@
       }
     },
     {
-      "id": 6,
+      "id": 8,
       "type": "timeseries",
       "title": "Temperature by room",
       "datasource": {
@@ -360,6 +545,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "celsius",
+          "min": 16,
+          "max": 30,
           "displayName": "${__field.labels.room}",
           "thresholds": {
             "mode": "absolute",
@@ -367,6 +554,14 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "blue",
+                "value": -1000
+              },
+              {
+                "color": "green",
+                "value": 18
               },
               {
                 "color": "orange",
@@ -383,7 +578,8 @@
               "mode": "line+area"
             },
             "lineWidth": 1,
-            "fillOpacity": 0
+            "fillOpacity": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -401,7 +597,7 @@
       }
     },
     {
-      "id": 7,
+      "id": 9,
       "type": "timeseries",
       "title": "Humidity by room",
       "datasource": {
@@ -427,6 +623,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "min": 20,
+          "max": 80,
           "displayName": "${__field.labels.room}",
           "thresholds": {
             "mode": "absolute",
@@ -450,7 +648,8 @@
               "mode": "line+area"
             },
             "lineWidth": 1,
-            "fillOpacity": 0
+            "fillOpacity": 0,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -468,7 +667,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 10,
       "type": "timeseries",
       "title": "Energy by room",
       "datasource": {
@@ -494,6 +693,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "kwatt",
+          "min": 0,
+          "max": 6,
           "displayName": "${__field.labels.room}",
           "thresholds": {
             "mode": "absolute",
@@ -517,6 +718,80 @@
               "mode": "line+area"
             },
             "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CO2 — 1-minute average per room (aggregator)",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"aggregates\" and r.sensorType == \"co2\" and r._field == \"avg\")\n  |> filter(fn: (r) => \"${floor}\" == \"All\" or r.floor == \"${floor}\")\n  |> group(columns: [\"room\"])\n  |> keep(columns: [\"_time\", \"_value\", \"room\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ppm",
+          "min": 400,
+          "max": 2000,
+          "displayName": "${__field.labels.room}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 1500
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "showPoints": "always",
+            "pointSize": 4,
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "lineWidth": 1,
             "fillOpacity": 0
           }
         },
@@ -535,7 +810,140 @@
       }
     },
     {
-      "id": 9,
+      "id": 12,
+      "type": "timeseries",
+      "title": "Pipeline latency (sensor → InfluxDB)",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "description": "ingest = sensor → Node-RED · pipeline = Node-RED → Kafka → consumer → InfluxDB · total = end to end. Measured by storage-consumer every 10 s.",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"pipeline_latency\")\n  |> filter(fn: (r) => r._field == \"avg_total_ms\" or r._field == \"p95_total_ms\" or r._field == \"avg_ingest_ms\" or r._field == \"avg_pipeline_ms\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95_total_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p95 total"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_total_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg total"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_ingest_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg ingest (sensor → Node-RED)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_pipeline_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "avg pipeline (Node-RED → InfluxDB)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
       "type": "table",
       "title": "Latest alerts",
       "datasource": {
@@ -544,7 +952,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 28,
         "w": 24,
         "h": 8
       },
@@ -555,11 +963,13 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"alerts\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumnKey: \"_value\")\n  |> group()\n  |> keep(columns: [\"_time\", \"severity\", \"room\", \"sensorType\", \"value\", \"threshold\", \"message\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)"
+          "query": "from(bucket: \"building\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"alerts\" and r._field == \"message\")\n  |> filter(fn: (r) => \"${floor}\" == \"All\" or r.floor == \"${floor}\")\n  |> group()\n  |> keep(columns: [\"_time\", \"severity\", \"room\", \"sensorType\", \"_value\"])\n  |> rename(columns: {_value: \"message\"})\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "No alert in this period"
+        },
         "overrides": [
           {
             "matcher": {
@@ -604,11 +1014,29 @@
                 "value": "Time"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sensorType"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Sensor"
+              }
+            ]
           }
         ]
       },
       "options": {
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
       }
     }
   ]
