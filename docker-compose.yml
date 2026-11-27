@@ -17,7 +17,8 @@ services:
     restart: unless-stopped
 
   nodered:
-    image: nodered/node-red:4.0
+    build: ./nodered
+    image: smart-building-nodered
     container_name: nodered
     ports:
       - "${NODERED_PORT:-1880}:1880"
@@ -179,12 +180,46 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # B's next services (days 6 to 8): aggregator, notifier
-  #   build: { context: ./services, dockerfile: <name>/Dockerfile }
-  #   environment:
-  #     KAFKA_BOOTSTRAP: kafka:29092
-  #     INFLUX_URL: http://influxdb:8086
-  #     INFLUX_TOKEN: ${INFLUX_TOKEN}
+  # Aggregator (day 6): 1-minute windows per room + sensorType -> building.aggregates
+  aggregator:
+    build:
+      context: ./services
+      dockerfile: aggregator/Dockerfile
+    container_name: aggregator
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      GROUP_ID: aggregator
+      WINDOW_SECONDS: 60
+      ALLOWED_LATENESS_SECONDS: 5
+      IDLE_SECONDS: 10
+      SUMMARY_SECONDS: 30
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Notifier (day 8): building.alerts -> Telegram (DRY-RUN if the bot is not configured)
+  notifier:
+    build:
+      context: ./services
+      dockerfile: notifier/Dockerfile
+    container_name: notifier
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      GROUP_ID: notifier
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      MAX_AGE_SECONDS: 300
+      GROUP_THRESHOLD: 3
+      TZ: Europe/Paris
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   mosquitto-data:
